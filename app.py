@@ -83,7 +83,7 @@ def create_output_files(template_bytes, excel_data, selected_columns):
             doc_io.seek(0)
 
             filename = f"output_{index + 1}.docx"
-            for key in ['name', 'Name', 'ho_ten', 'ten']:
+            for key in ['name', 'Name', 'ho_ten', 'ten', 'FullName', 'fullname']:
                 if key in data_dict and data_dict[key]:
                     filename = f"{data_dict[key]}.docx"
                     break
