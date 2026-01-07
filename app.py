@@ -190,104 +190,21 @@ def process_word_template(doc_bytes, data_dict):
             replace_placeholders_in_paragraph(paragraph, data_dict)
         for table in doc.tables:
             replace_placeholders_in_table(table, data_dict)
-        
-        # QUAN TRỌNG: Chuẩn hóa spacing trước khi save
-        doc = normalize_word_spacing(doc)
-        
         return doc
     except Exception as e:
         st.error(f"Lỗi khi xử lý template Word: {str(e)}")
         return None
 
-def normalize_word_spacing(doc):
-    """
-    Chuẩn hóa spacing trong Word document trước khi convert
-    Giúp tránh nhảy khoảng cách khi convert sang PDF
-    """
-    from docx.shared import Pt, Inches
-    
-    for paragraph in doc.paragraphs:
-        # Đặt spacing cố định
-        paragraph.paragraph_format.space_before = Pt(0)
-        paragraph.paragraph_format.space_after = Pt(0)
-        paragraph.paragraph_format.line_spacing = 1.0
-        
-        # Tắt các thuộc tính gây nhảy trang
-        paragraph.paragraph_format.keep_together = False
-        paragraph.paragraph_format.keep_with_next = False
-        paragraph.paragraph_format.page_break_before = False
-        paragraph.paragraph_format.widow_control = False
-    
-    # Xử lý tables
-    for table in doc.tables:
-        # Đặt table properties
-        table.autofit = True
-        table.allow_autofit = True
-        
-        for row in table.rows:
-            # Cho phép row break across pages nếu cần
-            row.height_rule = None
-            
-            for cell in row.cells:
-                # Đặt cell margins về 0
-                tc = cell._element
-                tcPr = tc.get_or_add_tcPr()
-                tcMar = tcPr.get_or_add_tcMar()
-                
-                # Set margins to 0
-                from docx.oxml.shared import OxmlElement
-                for margin in ['top', 'bottom', 'left', 'right']:
-                    node = tcMar.find('.//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}' + margin)
-                    if node is None:
-                        node = OxmlElement('w:' + margin)
-                        tcMar.append(node)
-                    node.set('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}w', '0')
-                    node.set('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}type', 'dxa')
-                
-                for paragraph in cell.paragraphs:
-                    paragraph.paragraph_format.space_before = Pt(0)
-                    paragraph.paragraph_format.space_after = Pt(0)
-                    paragraph.paragraph_format.line_spacing = 1.0
-    
-    # Đặt margins cho toàn document - NHỎ HƠN ĐỂ NỘI DUNG VỪA TRANG
-    for section in doc.sections:
-        section.top_margin = Inches(0.59)    # 1.5cm thay vì 2cm
-        section.bottom_margin = Inches(0.59)
-        section.left_margin = Inches(0.59)
-        section.right_margin = Inches(0.59)
-        
-        # Đảm bảo page size là A4
-        section.page_height = Inches(11.69)  # 29.7cm
-        section.page_width = Inches(8.27)    # 21cm
-    
-    return doc
-
 def convert_docx_to_pdf_libreoffice(docx_path, pdf_path):
     """
-    Convert bằng LibreOffice với cấu hình tối ưu
-    Giảm thiểu vấn đề nhảy spacing
+    Convert bằng LibreOffice với cấu hình tối ưu cho Streamlit Cloud
     """
     try:
         # Kiểm tra LibreOffice có sẵn không
         check_cmd = ['libreoffice', '--version']
         subprocess.run(check_cmd, capture_output=True, timeout=5)
         
-        # Convert với filter options để giữ formatting tốt hơn
-        # Sử dụng filter options của LibreOffice
-        filter_options = (
-            "writer_pdf_Export:"
-            "{"
-            "\"ExportFormFields\":false,"
-            "\"FormsType\":0,"
-            "\"ExportBookmarks\":false,"
-            "\"ExportNotes\":false,"
-            "\"Quality\":100,"
-            "\"ReduceImageResolution\":false,"
-            "\"UseTaggedPDF\":false,"
-            "\"SelectPdfVersion\":0"
-            "}"
-        )
-        
+        # Convert với options tối ưu
         cmd = [
             'libreoffice',
             '--headless',
@@ -305,8 +222,6 @@ def convert_docx_to_pdf_libreoffice(docx_path, pdf_path):
         
         env = os.environ.copy()
         env['HOME'] = tempfile.gettempdir()
-        # Thêm biến môi trường để cải thiện rendering
-        env['SAL_USE_VCLPLUGIN'] = 'svp'
         
         result = subprocess.run(
             cmd,
@@ -472,18 +387,11 @@ PyPDF2
     
     with st.expander("✨ Tips giữ định dạng"):
         st.markdown("""
-        **Để tránh nhảy spacing khi convert PDF:**
-        - ✅ Đặt line spacing = 1.0 (Single) trong Word
-        - ✅ Đặt "Before/After" spacing = 0pt
-        - ✅ Tắt "Widow/Orphan control"
-        - ✅ Dùng font: Arial, Times New Roman
-        - ✅ Margins: 2cm (0.79 inch) mỗi cạnh
-        - ✅ Không dùng "Keep with next" hoặc "Keep together"
-        - ✅ Tránh dùng Text Box, WordArt
-        
-        **Kiểm tra trong Word:**
-        - Format → Paragraph → Line Spacing: Single
-        - Format → Paragraph → Spacing Before/After: 0pt
+        - ✅ Dùng font: Arial, Times New Roman, Calibri
+        - ✅ Tránh WordArt, effects phức tạp
+        - ✅ Đặt margins: 2cm mỗi cạnh
+        - ✅ Dùng styles có sẵn trong Word
+        - ✅ Test template trước khi chạy hàng loạt
         """)
 
 # Main content
