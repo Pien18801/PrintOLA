@@ -3,4 +3,4 @@ pandas
 python-docx
 openpyxl
 docx2pdf 
-docxcompose
+PyPDF2
