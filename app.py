@@ -45,18 +45,58 @@ def load_excel_file(uploaded_file):
         return None
 
 def replace_placeholders_in_paragraph(paragraph, data_dict):
-    full_text = paragraph.text
-    has_placeholder = any(f"{{{{{key}}}}}" in full_text for key in data_dict)
-    if has_placeholder:
-        new_text = full_text
+    """
+    Thay thế {{placeholder}} bằng dữ liệu tương ứng
+    - Giữ nguyên toàn bộ format (bold, font, size, màu…)
+    - Không xóa run
+    - Hỗ trợ nhiều placeholder trong 1 paragraph
+    - Xử lý được placeholder bị split run (ở mức an toàn)
+    """
+
+    # 1. Replace trực tiếp trong từng run (case chuẩn)
+    for run in paragraph.runs:
         for key, value in data_dict.items():
-            new_text = new_text.replace(f"{{{{{key}}}}}", str(value))
-        for run in paragraph.runs:
-            run.clear()
-        if paragraph.runs:
-            paragraph.runs[0].text = new_text
-        else:
-            paragraph.add_run(new_text)
+            placeholder = f"{{{{{key}}}}}"
+            if placeholder in run.text:
+                run.text = run.text.replace(placeholder, str(value))
+
+    # 2. Xử lý placeholder bị split nhiều run
+    # Ghép text toàn paragraph để detect
+    full_text = "".join(run.text for run in paragraph.runs)
+
+    for key, value in data_dict.items():
+        placeholder = f"{{{{{key}}}}}"
+        if placeholder in full_text:
+            new_text = full_text.replace(placeholder, str(value))
+
+            # ⚠️ rebuild paragraph nhưng giữ format của run đầu tiên
+            first_run = paragraph.runs[0]
+
+            # Lưu format
+            bold = first_run.bold
+            italic = first_run.italic
+            underline = first_run.underline
+            font_name = first_run.font.name
+            font_size = first_run.font.size
+            font_color = first_run.font.color.rgb
+
+            # Clear text (KHÔNG xoá run object)
+            for run in paragraph.runs:
+                run.text = ""
+
+            # Gán lại text
+            first_run.text = new_text
+
+            # Restore format
+            first_run.bold = bold
+            first_run.italic = italic
+            first_run.underline = underline
+            first_run.font.name = font_name
+            first_run.font.size = font_size
+            if font_color:
+                first_run.font.color.rgb = font_color
+
+            break  # xử lý 1 lần là đủ
 
 def replace_placeholders_in_table(table, data_dict):
     for row in table.rows:
@@ -209,6 +249,7 @@ if excel_file and word_file:
         st.warning("⚠️ Vui lòng chọn ít nhất một cột từ Excel")
 else:
     st.info("👆 Vui lòng upload cả file Excel và Word để bắt đầu")
+
 
 
 
