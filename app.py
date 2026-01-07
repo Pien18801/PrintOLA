@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
 from docx import Document
-from docx2pdf import convert
+# from docx2pdf import convert  # Không dùng trên Linux
+import subprocess
+import platform
 from PyPDF2 import PdfMerger
 import io
 import re
@@ -10,11 +12,9 @@ import os
 import base64
 import zipfile
 from openpyxl import load_workbook
-import tempfile
 
 def load_excel_file(uploaded_file):
     try:
-        # Lưu file tạm
         with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
             tmp.write(uploaded_file.getvalue())
             tmp_path = tmp.name
@@ -31,7 +31,6 @@ def load_excel_file(uploaded_file):
                 if cell.value is None:
                     row_data[header] = ""
                 else:
-                    # 👉 LẤY GIÁ TRỊ HIỂN THỊ (KHÔNG PHẢI RAW)
                     if cell.is_date:
                         row_data[header] = cell.value.strftime("%d/%m/%Y")
                     else:
@@ -49,8 +48,6 @@ def replace_placeholders_in_paragraph(paragraph, data_dict):
     Thay thế placeholder và chỉ giữ định dạng của chính placeholder đó
     Các phần text khác giữ nguyên định dạng riêng
     """
-    import re
-    
     for key, value in data_dict.items():
         placeholder = f"{{{{{key}}}}}"
         
@@ -204,56 +201,12 @@ def replace_placeholders_in_paragraph(paragraph, data_dict):
 
 def replace_placeholders_in_table(table, data_dict):
     """
-    Thay thế placeholder trong bảng và giữ nguyên định dạng
-    Xử lý cả paragraph và cell text
+    Thay thế placeholder trong bảng
     """
     for row in table.rows:
         for cell in row.cells:
-            # Xử lý từng paragraph trong cell
             for paragraph in cell.paragraphs:
                 replace_placeholders_in_paragraph(paragraph, data_dict)
-            
-            # Xử lý trường hợp placeholder nằm trong cell.text
-            # (một số template có placeholder trực tiếp trong cell)
-            cell_text = cell.text
-            has_placeholder = any(f"{{{{{key}}}}}" in cell_text for key in data_dict.keys())
-            
-            if has_placeholder and len(cell.paragraphs) > 0:
-                # Lấy định dạng từ run đầu tiên của paragraph đầu tiên
-                first_para = cell.paragraphs[0]
-                if first_para.runs:
-                    first_run = first_para.runs[0]
-                    
-                    # Thay thế text
-                    new_text = cell_text
-                    for key, value in data_dict.items():
-                        placeholder = f"{{{{{key}}}}}"
-                        new_text = new_text.replace(placeholder, str(value))
-                    
-                    # Xóa tất cả nội dung cũ trong cell
-                    for para in cell.paragraphs:
-                        for run in para.runs:
-                            run.text = ''
-                    
-                    # Tạo run mới với định dạng gốc
-                    new_run = first_para.runs[0] if first_para.runs else first_para.add_run()
-                    new_run.text = new_text
-                    
-                    # Giữ nguyên định dạng
-                    if first_run.font.name:
-                        new_run.font.name = first_run.font.name
-                    if first_run.font.size:
-                        new_run.font.size = first_run.font.size
-                    if first_run.font.bold is not None:
-                        new_run.font.bold = first_run.font.bold
-                    if first_run.font.italic is not None:
-                        new_run.font.italic = first_run.font.italic
-                    if first_run.font.underline is not None:
-                        new_run.font.underline = first_run.font.underline
-                    if first_run.font.color.rgb:
-                        new_run.font.color.rgb = first_run.font.color.rgb
-                    if first_run.font.highlight_color:
-                        new_run.font.highlight_color = first_run.font.highlight_color
 
 def process_word_template(doc_bytes, data_dict):
     try:
@@ -267,6 +220,39 @@ def process_word_template(doc_bytes, data_dict):
     except Exception as e:
         st.error(f"Lỗi khi xử lý template Word: {str(e)}")
         return None
+
+def convert_docx_to_pdf(docx_path, pdf_path):
+    """
+    Convert DOCX to PDF - tương thích với cả Windows và Linux
+    """
+    system = platform.system()
+    
+    try:
+        if system == "Windows":
+            # Dùng docx2pdf trên Windows
+            from docx2pdf import convert
+            convert(docx_path, pdf_path)
+        elif system == "Linux":
+            # Dùng LibreOffice trên Linux
+            subprocess.run([
+                'libreoffice', '--headless', '--convert-to', 'pdf',
+                '--outdir', os.path.dirname(pdf_path), docx_path
+            ], check=True, capture_output=True)
+        elif system == "Darwin":  # macOS
+            # Dùng LibreOffice trên macOS
+            subprocess.run([
+                '/Applications/LibreOffice.app/Contents/MacOS/soffice',
+                '--headless', '--convert-to', 'pdf',
+                '--outdir', os.path.dirname(pdf_path), docx_path
+            ], check=True, capture_output=True)
+        else:
+            raise Exception(f"Hệ điều hành {system} không được hỗ trợ")
+        
+        return True
+    except FileNotFoundError:
+        raise Exception("LibreOffice chưa được cài đặt. Vui lòng cài: sudo apt-get install libreoffice")
+    except Exception as e:
+        raise Exception(f"Lỗi convert: {str(e)}")
 
 def create_output_files(template_bytes, excel_data, selected_columns):
     output_files = []
@@ -287,18 +273,19 @@ def create_output_files(template_bytes, excel_data, selected_columns):
 
             docx_path = os.path.join(tmpdir, filename)
             pdf_path = docx_path.replace(".docx", ".pdf")
+            pdf_filename = filename.replace(".docx", ".pdf")
             doc.save(docx_path)
 
             with open(docx_path, "rb") as fdocx:
                 output_files.append((filename, fdocx.read()))
 
-            temp_paths.append((docx_path, pdf_path))
+            temp_paths.append((docx_path, pdf_path, pdf_filename))
 
-    for docx_path, pdf_path in temp_paths:
+    for docx_path, pdf_path, pdf_filename in temp_paths:
         try:
-            convert(docx_path, pdf_path)
+            convert_docx_to_pdf(docx_path, pdf_path)
             with open(pdf_path, "rb") as fpdf:
-                pdf_files.append((pdf_path, fpdf.read()))
+                pdf_files.append((pdf_filename, fpdf.read()))
         except Exception as e:
             st.warning(f"⚠️ Không thể convert {os.path.basename(docx_path)} sang PDF: {e}")
 
@@ -366,8 +353,9 @@ if excel_file and word_file:
                 output_files, pdf_files = create_output_files(template_bytes, excel_data, selected_columns)
 
                 if output_files:
-                    st.success(f"✅ Đã tạo {len(output_files)} file Word và PDF")
+                    st.success(f"✅ Đã tạo {len(output_files)} file Word và {len(pdf_files)} file PDF")
 
+                    # Download tất cả Word files
                     zip_content = create_zip_file(output_files)
                     st.download_button(
                         label="📦 Tải tất cả file Word (.zip)",
@@ -376,7 +364,17 @@ if excel_file and word_file:
                         mime="application/zip"
                     )
 
+                    # Download tất cả PDF files
                     if pdf_files:
+                        pdf_zip_content = create_zip_file(pdf_files)
+                        st.download_button(
+                            label="📦 Tải tất cả file PDF (.zip)",
+                            data=pdf_zip_content,
+                            file_name="pdf_documents.zip",
+                            mime="application/zip"
+                        )
+
+                        # Download PDF gộp để in
                         merged_pdf = merge_pdfs(pdf_files)
                         st.download_button(
                             label="🖨️ Tải file PDF gộp để in",
@@ -385,6 +383,7 @@ if excel_file and word_file:
                             mime="application/pdf"
                         )
 
+                        # Preview PDF gộp
                         b64 = base64.b64encode(merged_pdf).decode()
                         st.markdown(f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="1000px"></iframe>', unsafe_allow_html=True)
                 else:
@@ -393,11 +392,3 @@ if excel_file and word_file:
         st.warning("⚠️ Vui lòng chọn ít nhất một cột từ Excel")
 else:
     st.info("👆 Vui lòng upload cả file Excel và Word để bắt đầu")
-
-
-
-
-
-
-
-
