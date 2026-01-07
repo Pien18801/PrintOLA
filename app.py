@@ -13,7 +13,11 @@ import zipfile
 # ---------------------- FUNCTIONS ----------------------
 def load_excel_file(uploaded_file):
     try:
-        return pd.read_excel(uploaded_file)
+        return pd.read_excel(
+            uploaded_file,
+            dtype=str,          # ÉP tất cả cột về string
+            keep_default_na=False  # Không biến ô trống thành NaN
+        )
     except Exception as e:
         st.error(f"Lỗi khi đọc file Excel: {str(e)}")
         return None
@@ -183,3 +187,4 @@ if excel_file and word_file:
         st.warning("⚠️ Vui lòng chọn ít nhất một cột từ Excel")
 else:
     st.info("👆 Vui lòng upload cả file Excel và Word để bắt đầu")
+
