@@ -47,53 +47,151 @@ def load_excel_file(uploaded_file):
 def replace_placeholders_in_paragraph(paragraph, data_dict):
     """
     Thay thế placeholder trong paragraph và giữ nguyên định dạng chữ
+    Xử lý trường hợp placeholder bị tách thành nhiều runs
     """
+    # Ghép toàn bộ text của paragraph
+    full_text = ''.join(run.text for run in paragraph.runs)
+    
+    # Kiểm tra xem có placeholder nào không
+    has_changes = False
+    for key in data_dict.keys():
+        if f"{{{{{key}}}}}" in full_text:
+            has_changes = True
+            break
+    
+    if not has_changes:
+        return
+    
+    # Tạo map vị trí của từng run
+    run_positions = []
+    pos = 0
+    for run in paragraph.runs:
+        run_length = len(run.text)
+        run_positions.append({
+            'run': run,
+            'start': pos,
+            'end': pos + run_length,
+            'text': run.text,
+            'font_name': run.font.name,
+            'font_size': run.font.size,
+            'bold': run.font.bold,
+            'italic': run.font.italic,
+            'underline': run.font.underline,
+            'color': run.font.color.rgb if run.font.color.rgb else None,
+            'highlight': run.font.highlight_color
+        })
+        pos += run_length
+    
+    # Thay thế placeholder trong text
+    new_text = full_text
+    replacements = []
     for key, value in data_dict.items():
         placeholder = f"{{{{{key}}}}}"
-        
-        # Duyệt qua từng run để tìm placeholder
-        for run in paragraph.runs:
-            if placeholder in run.text:
-                # Lưu lại định dạng gốc của run
-                original_font_name = run.font.name
-                original_font_size = run.font.size
-                original_bold = run.font.bold
-                original_italic = run.font.italic
-                original_underline = run.font.underline
-                original_color = run.font.color.rgb if run.font.color.rgb else None
-                original_highlight = run.font.highlight_color
-                
-                # Thay thế text
-                run.text = run.text.replace(placeholder, str(value))
-                
-                # Áp dụng lại định dạng gốc
-                if original_font_name:
-                    run.font.name = original_font_name
-                if original_font_size:
-                    run.font.size = original_font_size
-                if original_bold is not None:
-                    run.font.bold = original_bold
-                if original_italic is not None:
-                    run.font.italic = original_italic
-                if original_underline is not None:
-                    run.font.underline = original_underline
-                if original_color:
-                    run.font.color.rgb = original_color
-                if original_highlight:
-                    run.font.highlight_color = original_highlight
+        if placeholder in new_text:
+            # Tìm vị trí của placeholder
+            start_idx = new_text.find(placeholder)
+            end_idx = start_idx + len(placeholder)
+            
+            # Tìm run chứa điểm bắt đầu của placeholder
+            format_to_use = None
+            for rp in run_positions:
+                if rp['start'] <= start_idx < rp['end']:
+                    format_to_use = rp
+                    break
+            
+            # Thay thế
+            new_text = new_text.replace(placeholder, str(value), 1)
+            
+            # Lưu thông tin replacement
+            replacements.append({
+                'old_start': start_idx,
+                'old_end': end_idx,
+                'new_length': len(str(value)),
+                'format': format_to_use
+            })
+    
+    # Xóa tất cả runs cũ
+    for run in paragraph.runs:
+        run.text = ''
+    
+    # Tạo run mới với text đã thay thế
+    if paragraph.runs:
+        new_run = paragraph.runs[0]
+    else:
+        new_run = paragraph.add_run()
+    
+    new_run.text = new_text
+    
+    # Áp dụng định dạng từ run gốc chứa placeholder
+    if replacements and replacements[0]['format']:
+        fmt = replacements[0]['format']
+        if fmt['font_name']:
+            new_run.font.name = fmt['font_name']
+        if fmt['font_size']:
+            new_run.font.size = fmt['font_size']
+        if fmt['bold'] is not None:
+            new_run.font.bold = fmt['bold']
+        if fmt['italic'] is not None:
+            new_run.font.italic = fmt['italic']
+        if fmt['underline'] is not None:
+            new_run.font.underline = fmt['underline']
+        if fmt['color']:
+            new_run.font.color.rgb = fmt['color']
+        if fmt['highlight']:
+            new_run.font.highlight_color = fmt['highlight']
 
 def replace_placeholders_in_table(table, data_dict):
+    """
+    Thay thế placeholder trong bảng và giữ nguyên định dạng
+    Xử lý cả paragraph và cell text
+    """
     for row in table.rows:
         for cell in row.cells:
+            # Xử lý từng paragraph trong cell
             for paragraph in cell.paragraphs:
                 replace_placeholders_in_paragraph(paragraph, data_dict)
+            
+            # Xử lý trường hợp placeholder nằm trong cell.text
+            # (một số template có placeholder trực tiếp trong cell)
             cell_text = cell.text
-            if any(f"{{{{{key}}}}}" in cell_text for key in data_dict):
-                new_text = cell_text
-                for key, value in data_dict.items():
-                    new_text = new_text.replace(f"{{{{{key}}}}}", str(value))
-                cell.text = ""
-                cell.paragraphs[0].add_run(new_text)
+            has_placeholder = any(f"{{{{{key}}}}}" in cell_text for key in data_dict.keys())
+            
+            if has_placeholder and len(cell.paragraphs) > 0:
+                # Lấy định dạng từ run đầu tiên của paragraph đầu tiên
+                first_para = cell.paragraphs[0]
+                if first_para.runs:
+                    first_run = first_para.runs[0]
+                    
+                    # Thay thế text
+                    new_text = cell_text
+                    for key, value in data_dict.items():
+                        placeholder = f"{{{{{key}}}}}"
+                        new_text = new_text.replace(placeholder, str(value))
+                    
+                    # Xóa tất cả nội dung cũ trong cell
+                    for para in cell.paragraphs:
+                        for run in para.runs:
+                            run.text = ''
+                    
+                    # Tạo run mới với định dạng gốc
+                    new_run = first_para.runs[0] if first_para.runs else first_para.add_run()
+                    new_run.text = new_text
+                    
+                    # Giữ nguyên định dạng
+                    if first_run.font.name:
+                        new_run.font.name = first_run.font.name
+                    if first_run.font.size:
+                        new_run.font.size = first_run.font.size
+                    if first_run.font.bold is not None:
+                        new_run.font.bold = first_run.font.bold
+                    if first_run.font.italic is not None:
+                        new_run.font.italic = first_run.font.italic
+                    if first_run.font.underline is not None:
+                        new_run.font.underline = first_run.font.underline
+                    if first_run.font.color.rgb:
+                        new_run.font.color.rgb = first_run.font.color.rgb
+                    if first_run.font.highlight_color:
+                        new_run.font.highlight_color = first_run.font.highlight_color
 
 def process_word_template(doc_bytes, data_dict):
     try:
@@ -233,6 +331,7 @@ if excel_file and word_file:
         st.warning("⚠️ Vui lòng chọn ít nhất một cột từ Excel")
 else:
     st.info("👆 Vui lòng upload cả file Excel và Word để bắt đầu")
+
 
 
 
