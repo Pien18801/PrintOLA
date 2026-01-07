@@ -45,18 +45,42 @@ def load_excel_file(uploaded_file):
         return None
 
 def replace_placeholders_in_paragraph(paragraph, data_dict):
-    full_text = paragraph.text
-    has_placeholder = any(f"{{{{{key}}}}}" in full_text for key in data_dict)
-    if has_placeholder:
-        new_text = full_text
-        for key, value in data_dict.items():
-            new_text = new_text.replace(f"{{{{{key}}}}}", str(value))
+    """
+    Thay thế placeholder trong paragraph và giữ nguyên định dạng chữ
+    """
+    for key, value in data_dict.items():
+        placeholder = f"{{{{{key}}}}}"
+        
+        # Duyệt qua từng run để tìm placeholder
         for run in paragraph.runs:
-            run.clear()
-        if paragraph.runs:
-            paragraph.runs[0].text = new_text
-        else:
-            paragraph.add_run(new_text)
+            if placeholder in run.text:
+                # Lưu lại định dạng gốc của run
+                original_font_name = run.font.name
+                original_font_size = run.font.size
+                original_bold = run.font.bold
+                original_italic = run.font.italic
+                original_underline = run.font.underline
+                original_color = run.font.color.rgb if run.font.color.rgb else None
+                original_highlight = run.font.highlight_color
+                
+                # Thay thế text
+                run.text = run.text.replace(placeholder, str(value))
+                
+                # Áp dụng lại định dạng gốc
+                if original_font_name:
+                    run.font.name = original_font_name
+                if original_font_size:
+                    run.font.size = original_font_size
+                if original_bold is not None:
+                    run.font.bold = original_bold
+                if original_italic is not None:
+                    run.font.italic = original_italic
+                if original_underline is not None:
+                    run.font.underline = original_underline
+                if original_color:
+                    run.font.color.rgb = original_color
+                if original_highlight:
+                    run.font.highlight_color = original_highlight
 
 def replace_placeholders_in_table(table, data_dict):
     for row in table.rows:
@@ -209,6 +233,7 @@ if excel_file and word_file:
         st.warning("⚠️ Vui lòng chọn ít nhất một cột từ Excel")
 else:
     st.info("👆 Vui lòng upload cả file Excel và Word để bắt đầu")
+
 
 
 
