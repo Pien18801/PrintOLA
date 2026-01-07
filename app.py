@@ -96,7 +96,7 @@ def create_output_files(template_bytes, excel_data, selected_columns):
         doc = process_word_template(template_bytes, data_dict)
         if doc is not None:
             filename = f"output_{index + 1}.docx"
-            for key in ['name', 'Name', 'ho_ten', 'ten', 'fullName', 'FullName']:
+            for key in ['name', 'Name', 'ho_ten', 'ten', 'fullName', 'FullName', 'StudentName']:
                 if key in data_dict and data_dict[key]:
                     filename = f"{data_dict[key]}.docx"
                     break
@@ -209,5 +209,6 @@ if excel_file and word_file:
         st.warning("⚠️ Vui lòng chọn ít nhất một cột từ Excel")
 else:
     st.info("👆 Vui lòng upload cả file Excel và Word để bắt đầu")
+
 
 
