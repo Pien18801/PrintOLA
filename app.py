@@ -9,15 +9,37 @@ import tempfile
 import os
 import base64
 import zipfile
+from openpyxl import load_workbook
+import tempfile
 
-# ---------------------- FUNCTIONS ----------------------
 def load_excel_file(uploaded_file):
     try:
-        return pd.read_excel(
-            uploaded_file,
-            dtype=str,          # ÉP tất cả cột về string
-            keep_default_na=False  # Không biến ô trống thành NaN
-        )
+        # Lưu file tạm
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+            tmp.write(uploaded_file.getvalue())
+            tmp_path = tmp.name
+
+        wb = load_workbook(tmp_path, data_only=True)
+        ws = wb.active
+
+        headers = [cell.value for cell in ws[1]]
+
+        data = []
+        for row in ws.iter_rows(min_row=2):
+            row_data = {}
+            for header, cell in zip(headers, row):
+                if cell.value is None:
+                    row_data[header] = ""
+                else:
+                    # 👉 LẤY GIÁ TRỊ HIỂN THỊ (KHÔNG PHẢI RAW)
+                    if cell.is_date:
+                        row_data[header] = cell.value.strftime("%d/%m/%Y")
+                    else:
+                        row_data[header] = str(cell.value)
+            data.append(row_data)
+
+        return pd.DataFrame(data)
+
     except Exception as e:
         st.error(f"Lỗi khi đọc file Excel: {str(e)}")
         return None
@@ -187,4 +209,5 @@ if excel_file and word_file:
         st.warning("⚠️ Vui lòng chọn ít nhất một cột từ Excel")
 else:
     st.info("👆 Vui lòng upload cả file Excel và Word để bắt đầu")
+
 
